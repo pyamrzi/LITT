@@ -1,3 +1,7 @@
+# Developed by Michael B.
+# Medical College of Wisconsin
+# June 2025
+
 from shapely.geometry import Polygon, shape, Point
 import math
 import numpy as np
