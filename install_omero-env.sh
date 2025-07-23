@@ -12,9 +12,6 @@ sudo apt-get update
 # Install system dependencies first
 echo "Installing system dependencies..."
 sudo apt-get install -y \
-    fish \
-    nano \
-    vim \
     build-essential \
     software-properties-common \
     python3-full \
