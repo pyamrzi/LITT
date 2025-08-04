@@ -6,6 +6,17 @@ This script processes pickle files containing vessel and LITT margin polygons al
 CSV files containing cell centroids to generate a comprehensive analysis of DAB+ and DAB- 
 cellularity as a function of distance from vessel margins.
 
+The script calculates:
+1. Distance from each vessel centroid to nearest LITT margin
+2. Distance from each cell to nearest vessel margin 
+3. Bins cells by distance from vessels (configurable bin sizes)
+4. Generates summary statistics and ratios
+
+Output CSV format:
+- vessel_id: Unique identifier for each vessel
+- vessel_distance_to_litt: Distance from vessel centroid to nearest LITT margin
+- bin_X_Y_dab_pos/neg/total/ratio: Cell counts and ratios for each distance bin
+
 Created by M. Pouya Mirzaei for the LaViolette Lab
 Medical College of Wisconsin
 """
@@ -200,29 +211,87 @@ def calculate_cell_to_vessel_distances(cells_df, vessel_polygons):
     distances = []
     nearest_vessel_ids = []
     
-    # For better performance with large datasets, consider using spatial indexing
-    # but for simplicity and accuracy, we'll do direct computation
-    for idx, row in tqdm(cells_df.iterrows(), total=len(cells_df), desc="Computing cell-vessel distances"):
-        try:
-            cell_point = Point(row['x'], row['y'])
+    # Create vessel boundaries for distance calculations
+    vessel_boundaries = [vessel.boundary for vessel in vessel_polygons]
+    
+    # For large datasets, use optimized distance calculation
+    if len(cells_df) > 1000:
+        print("Using optimized calculation for large dataset...")
+        # Create spatial index for vessels if we have many vessels
+        if len(vessel_polygons) > 10:
+            vessel_tree = STRtree(vessel_polygons)
             
-            # Find nearest vessel by checking distance to each vessel
-            min_distance = float('inf')
-            nearest_vessel_id = -1
-            
-            for vessel_id, vessel in enumerate(vessel_polygons):
-                distance = cell_point.distance(vessel.boundary)
-                if distance < min_distance:
-                    min_distance = distance
-                    nearest_vessel_id = vessel_id
-            
-            distances.append(min_distance if min_distance != float('inf') else np.nan)
-            nearest_vessel_ids.append(nearest_vessel_id)
-            
-        except Exception as e:
-            print(f"Warning: Error calculating distance for cell at row {idx}: {e}")
-            distances.append(np.nan)
-            nearest_vessel_ids.append(-1)
+            for idx, row in tqdm(cells_df.iterrows(), total=len(cells_df), desc="Computing cell-vessel distances"):
+                try:
+                    cell_point = Point(row['x'], row['y'])
+                    
+                    # Use spatial index to find candidate vessels
+                    candidates = vessel_tree.query(cell_point.buffer(100))  # Look within 100 units
+                    if not candidates:
+                        # If no candidates found nearby, check all vessels
+                        candidates = range(len(vessel_polygons))
+                    
+                    min_distance = float('inf')
+                    nearest_vessel_id = -1
+                    
+                    for vessel_id in candidates:
+                        if vessel_id < len(vessel_polygons):  # Safety check
+                            distance = cell_point.distance(vessel_boundaries[vessel_id])
+                            if distance < min_distance:
+                                min_distance = distance
+                                nearest_vessel_id = vessel_id
+                    
+                    distances.append(min_distance if min_distance != float('inf') else np.nan)
+                    nearest_vessel_ids.append(nearest_vessel_id)
+                    
+                except Exception as e:
+                    print(f"Warning: Error calculating distance for cell at row {idx}: {e}")
+                    distances.append(np.nan)
+                    nearest_vessel_ids.append(-1)
+        else:
+            # For smaller number of vessels, direct computation is fine
+            for idx, row in tqdm(cells_df.iterrows(), total=len(cells_df), desc="Computing cell-vessel distances"):
+                try:
+                    cell_point = Point(row['x'], row['y'])
+                    
+                    min_distance = float('inf')
+                    nearest_vessel_id = -1
+                    
+                    for vessel_id, boundary in enumerate(vessel_boundaries):
+                        distance = cell_point.distance(boundary)
+                        if distance < min_distance:
+                            min_distance = distance
+                            nearest_vessel_id = vessel_id
+                    
+                    distances.append(min_distance if min_distance != float('inf') else np.nan)
+                    nearest_vessel_ids.append(nearest_vessel_id)
+                    
+                except Exception as e:
+                    print(f"Warning: Error calculating distance for cell at row {idx}: {e}")
+                    distances.append(np.nan)
+                    nearest_vessel_ids.append(-1)
+    else:
+        # For smaller datasets, use simpler approach
+        for idx, row in tqdm(cells_df.iterrows(), total=len(cells_df), desc="Computing cell-vessel distances"):
+            try:
+                cell_point = Point(row['x'], row['y'])
+                
+                min_distance = float('inf')
+                nearest_vessel_id = -1
+                
+                for vessel_id, boundary in enumerate(vessel_boundaries):
+                    distance = cell_point.distance(boundary)
+                    if distance < min_distance:
+                        min_distance = distance
+                        nearest_vessel_id = vessel_id
+                
+                distances.append(min_distance if min_distance != float('inf') else np.nan)
+                nearest_vessel_ids.append(nearest_vessel_id)
+                
+            except Exception as e:
+                print(f"Warning: Error calculating distance for cell at row {idx}: {e}")
+                distances.append(np.nan)
+                nearest_vessel_ids.append(-1)
     
     cells_df['distance_to_vessel'] = distances
     cells_df['nearest_vessel_id'] = nearest_vessel_ids
